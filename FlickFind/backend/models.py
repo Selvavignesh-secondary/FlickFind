@@ -1,5 +1,7 @@
 from sqlalchemy import Column, Integer, String, Float
 from database import Base
+# We import the native vector data type extension from the pgvector package
+from pgvector.sqlalchemy import Vector
 
 class Movie(Base):
     __tablename__ = "movies"
@@ -7,16 +9,14 @@ class Movie(Base):
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String(255), nullable=False)
     release_year = Column(Integer, nullable=False)
-    imdb_rating = Column(Float, nullable=True) # E.g., 8.3 [cite: 102]
+    imdb_rating = Column(Float, nullable=True)
     director = Column(String(255), nullable=True)
-    runtime = Column(Integer, nullable=False) # Total running minutes [cite: 104]
-    age_rating = Column(String(50), nullable=True) # E.g., "PG-13", "R" [cite: 80, 105]
-    synopsis = Column(String(500), nullable=False) # Scannable one-line summary [cite: 106]
-    content_warning = Column(String(255), nullable=True) # Single line warning string [cite: 81, 110]
+    runtime = Column(Integer, nullable=False)
+    age_rating = Column(String(50), nullable=True)
+    synopsis = Column(String(500), nullable=False)
+    content_warning = Column(String(255), nullable=True)
     
-    # --- The Vector Element Column ---
-    # We define our dimension length as 384 to perfectly align 
-    # with the sentence transformer vector dimensions[cite: 29].
-    # For now, we will store it as an array string field placeholder 
-    # while we initialize our custom mapping rules.
-    mood_vector_data = Column(String, nullable=True)
+    # 🧠 --- True High-Dimensional Vector Column ---
+    # We specify 384 dimensions to perfectly map and index the semantic outputs
+    # calculated by our local all-MiniLM-L6-v2 transformer model.
+    mood_vector_data = Column(Vector(384), nullable=True)
