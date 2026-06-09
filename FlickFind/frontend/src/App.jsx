@@ -5,6 +5,7 @@ function App() {
   // 🧭 State Hooks for our User Inputs and API Pipeline
   const [moodText, setMoodText] = useState('');
   const [movies, setMovies] = useState([]);
+  const [aiReasoning, setAiReasoning] = useState(''); // 🌟 FIXED: Declared missing state hook!
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
@@ -15,6 +16,7 @@ function App() {
 
     setIsLoading(true);
     setErrorMessage('');
+    setAiReasoning(''); // Clear previous text on fresh search
     
     try {
       const response = await fetch('http://127.0.0.1:8000/api/v1/recommend/mood', {
@@ -30,8 +32,10 @@ function App() {
       if (data.status === 'error' || data.status === 'failed') {
         setErrorMessage(data.message || 'The database processing engine returned a signature conflict.');
         setMovies([]);
+        setAiReasoning('');
       } else {
         setMovies(data.recommendations || []);
+        setAiReasoning(data.ai_reasoning || ''); // 🚀 Safely updates state now!
       }
     } catch (error) {
       console.error('API Handshake Failure:', error);
@@ -48,7 +52,7 @@ function App() {
       <header className="max-w-4xl w-full mx-auto text-center mb-12">
         <div className="inline-flex items-center gap-2 bg-dark-surface border border-gray-800 px-4 py-2 rounded-full text-sm text-accent-primary mb-4 shadow-sm">
           <Sparkles className="w-4 h-4" />
-          <span>Layer 2 Semantic Retrieval Engine Active</span>
+          <span>Layer 3 Generative Reasoning Engine Active</span>
         </div>
         <h1 className="text-4xl sm:text-5xl font-black tracking-tight mb-3 bg-gradient-to-r from-white via-gray-200 to-gray-500 bg-clip-text text-transparent">
           FlickFind<span className="text-accent-primary">.ai</span>
@@ -103,6 +107,20 @@ function App() {
                 <Film className="w-4 h-4" />
                 <span>Top Mathematical Matches ({movies.length})</span>
               </h2>
+
+              {/* 🧠 Glowing AI Conversational Reasoning Panel */}
+              {aiReasoning && (
+                <div className="bg-gray-900 border border-indigo-500/30 rounded-2xl p-6 mb-8 text-gray-200 shadow-xl border-l-4 border-l-indigo-500">
+                  <div className="flex items-center gap-2 text-indigo-400 font-bold text-sm mb-3 tracking-wide uppercase">
+                    <Sparkles className="w-4 h-4 fill-current animate-pulse" />
+                    <span>FlickFind AI Analyst Breakdown</span>
+                  </div>
+                  <p className="text-base leading-relaxed text-gray-300 font-medium italic">
+                    "{aiReasoning}"
+                  </p>
+                </div>
+              )}
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {movies.map((movie) => (
                   <div 
