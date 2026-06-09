@@ -1,0 +1,25 @@
+# Python virtual environments
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# Node/React dependencies
+node_modules/
+.pnpm-store/
+
+# Environment secrets & local data
+.env
+*.db
+*.local
+
+# AI Model weights & heavy assets
+models/
+*.bin
+*.pt
+*.onnx
+
+# IDE specific files
+.vscode/
+.idea/
+.DS_Store
