@@ -1,8 +1,15 @@
 from fastapi import FastAPI
-# Import our new secure validation schema
+from contextlib import asynccontextmanager
 from schemas import MoodRequest
+from ai_service import ai_engine
 
-app = FastAPI(title="FlickFind API", version="1.0.0")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    ai_engine.load_model()
+    yield
+    print("🔌 [FlickFind API] Shutting down application engine...")
+
+app = FastAPI(title="FlickFind API", version="1.0.0", lifespan=lifespan)
 
 @app.get("/")
 async def root():
@@ -11,16 +18,17 @@ async def root():
         "message": "Welcome to the FlickFind Backend Engine!"
     }
 
-# Define a secure POST endpoint for analyzing incoming moods
 @app.post("/api/v1/recommend/mood")
 async def analyze_mood(request: MoodRequest):
-    # At this point, Pydantic has ALREADY validated that request.mood_text exists and is safe!
     user_prompt = request.mood_text
     
-    # For now, we simulate a response placeholder until our AI model is wired up
+    # Generate the single, context-rich vector signature reflecting their exact mental state
+    vector_signature = ai_engine.generate_vector(user_prompt)
+    
     return {
         "received": True,
         "processed_text": user_prompt,
-        "mode_detected": "PENDING_AI_INTEGRATION",
-        "message": "Successfully intercepted secure data payload!"
+        "vector_dimensions": len(vector_signature),
+        "sample_vector_values": vector_signature[:5],
+        "status": "Vector generated successfully. Ready for PostgreSQL similarity matching."
     }
