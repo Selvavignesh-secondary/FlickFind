@@ -1,13 +1,10 @@
 import database
 import models
 
-def initialize_database():
-    print("🗄️ [Database] Connecting to Docker PostgreSQL container...")
-    try:
-        database.Base.metadata.create_all(bind=database.engine)
-        print("✅ [Database] Table structures created and synchronized successfully!")
-    except Exception as e:
-        print(f"❌ [Database] Connection failed: {e}")
+print("🗑️ Dropping outdated database tables...")
+models.Base.metadata.drop_all(bind=database.engine)
 
-if __name__ == "__main__":
-    initialize_database()
+print("🏗️ Creating fresh, optimized database layout...")
+models.Base.metadata.create_all(bind=database.engine)
+
+print("🏆 Database schemas reset and synced successfully!")

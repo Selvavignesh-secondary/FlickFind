@@ -23,3 +23,7 @@ models/
 .vscode/
 .idea/
 .DS_Store
+
+# 🚨 Big Gun Data Assets (Crucial Size Blocks)
+backend/movies_raw.parquet
+backend/check_vector.py

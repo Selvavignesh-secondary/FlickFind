@@ -1,46 +1,49 @@
 import os
 from dotenv import load_dotenv
 
-# 🔋 This scans your directory, finds your .env file, and securely loads the GEMINI_API_KEY
+# 🔋 Load environment configuration first
 load_dotenv()
 
+from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi import FastAPI, Depends
 from contextlib import asynccontextmanager
 from sqlalchemy.orm import Session
 from sqlalchemy import text
+from pydantic import BaseModel
 
-
-from schemas import MoodRequest
+# 📦 FIXED: Import BOTH required schema validation contracts simultaneously
+from schemas import MoodRequest, ChattedRecommendationResponse
 from ai_service import ai_engine
 import database
 import models
 
+# 🚀 Initialize the official Google GenAI SDK client
 from google import genai
+from google.genai import types
+
 genai_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
-app = FastAPI()
 
+# 🧠 Lifespan Event Handler Configuration
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 🧠 Initialize the local AI engine on boot
+    # Initialize the local embedding model on boot memory
     ai_engine.load_model()
-    
-    yield  # This acts as the structural pause button while the server runs
-    
-    # 🔌 This runs when you turn the server off
+    yield  
     print("🔌 [FlickFind API] Shutting down application engine...")
 
 
+# 🚀 FIXED: Single, unified application instantiation
 app = FastAPI(title="FlickFind API", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # Allows your React dev loop port to connect flawlessly
+    allow_origins=["*"], 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 @app.get("/")
 async def root():
@@ -48,6 +51,7 @@ async def root():
         "status": "online",
         "message": "Welcome to the FlickFind Backend Engine!"
     }
+
 
 @app.get("/api/v1/health/db")
 async def check_database_health(db: Session = Depends(database.get_db)):
@@ -64,74 +68,94 @@ async def check_database_health(db: Session = Depends(database.get_db)):
         }
 
 
-@app.post("/api/v1/recommend/mood")
-async def analyze_mood(request: MoodRequest, db: Session = Depends(database.get_db)):
-    user_prompt = request.mood_text
+@app.post("/api/v1/recommend/mood", response_model=ChattedRecommendationResponse)
+async def analyze_mood_chat(request: MoodRequest, db: Session = Depends(database.get_db)):
+    user_message = request.mood_text
     
-    # 1. Convert incoming emotional text into a vector coordinate
-    vector_signature = ai_engine.generate_vector(user_prompt)
+    # 📡 THE SYSTEM CONTEXT PROMPT
+    system_instruction = """
+    You are 'FlickFind AI', an elite, highly conversational cinema concierge.
+    Your job is to analyze the user's movie request and determine if they have provided enough specific thematic, emotional, or stylistic context for us to perform an accurate vector search.
+    
+    CRITICAL CRITERIA FOR CONTEXT SUFFICIENCY:
+    - Vague requests (e.g., 'show me a thriller', 'i want a comedy', 'good movies') are INSUFFICIENT (is_context_sufficient = false). You must engage in chat and ask sharp, creative follow-up questions to drill down into their specific taste profile.
+    - Detailed or specific requests (e.g., 'i need a high octane thriller with great visual effects', 'grounded slow-burn psychological mystery') are SUFFICIENT (is_context_sufficient = true). 
+    
+    HYBRID SUMMARY DIRECTIONS (Only apply if context is sufficient):
+    You will be given the titles of 5 mathematically matched movies. For EACH movie card, write a 'hybrid_summary'. 
+    This summary must seamlessly merge a brief plot hook of the film AND a creative explanation of why it perfectly fulfills their stated mood preference. Keep it tightly capped under 4 sentences.
+    """
     
     try:
-        # 2. Query our PostgreSQL database container via native Cosine Distance
-        recommendations = (
+        # 🕵️‍♂️ STAGE 1: FIRST LLM PASS TO CHECK CONTEXT SUFFICIENCY
+        routing_prompt = f"Analyze this user chat message for movie recommendation depth: '{user_message}'"
+        
+        class RouterGate(BaseModel):
+            is_context_sufficient: bool
+            followup_chat_response: str
+
+        gate_response = genai_client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=routing_prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=system_instruction,
+                response_mime_type="application/json",
+                response_schema=RouterGate,
+            ),
+        )
+        
+        router_decision = RouterGate.model_validate_json(gate_response.text)
+        
+        # 🚧 GATE BRANCH A: Context is too vague. Return early as a chatbot!
+        if not router_decision.is_context_sufficient:
+            return ChattedRecommendationResponse(
+                is_context_sufficient=False,
+                ai_followup_chat=router_decision.followup_chat_response,
+                recommendations=[] 
+            )
+            
+        # 🚀 GATE BRANCH B: Context is golden! Execute vector retrieval and data generation
+        # Step 2a: Convert user message to high-dimensional coordinate vector space
+        vector_signature = ai_engine.generate_vector(user_message)
+        
+        # Step 2b: Scan our ultra-lightweight PostgreSQL database layout for 5 matches
+        db_matches = (
             db.query(models.Movie)
             .order_by(models.Movie.mood_vector_data.cosine_distance(vector_signature))
-            .limit(2)
+            .limit(5)
             .all()
         )
         
-        # Structure database rows into a clean JSON array list
-        results = []
-        movie_context_strings = []
-        for movie in recommendations:
-            results.append({
-                "id": movie.id,
-                "title": movie.title,
-                "release_year": movie.release_year,
-                "imdb_rating": movie.imdb_rating,
-                "director": movie.director,
-                "runtime": movie.runtime,
-                "age_rating": movie.age_rating,
-                "synopsis": movie.synopsis,
-                "content_warning": movie.content_warning
-            })
-            # Combine individual titles and summaries into text blocks for Gemini
-            movie_context_strings.append(f"Title: {movie.title} | Synopsis: {movie.synopsis}")
-            
-        # 🧠 3. Generative AI Reasoning Pipeline Stage
-        formatted_movie_context = "\n\n".join(movie_context_strings)
+        # Increment hit counters on the fly for our LFU eviction cache strategy
+        for movie in db_matches:
+            movie.hit_count += 1
+        db.commit()
         
-        reasoning_prompt = f"""
-        You are an elite cinematic analyst for 'FlickFind.ai'.
-        The user wants a movie that matches this mood: "{user_prompt}"
+        # Bundle database identities to hand to the synthesis engine
+        local_movie_context = "\n".join([f"ID: {m.id} | Title: {m.title} | Year: {m.release_year}" for m in db_matches])
         
-        We found these matching films in our database:
-        {formatted_movie_context}
+        # 🧠 STAGE 2: SECOND PASS FOR INDIVIDUAL CARD HYDRATION & REASONING
+        generation_prompt = f"""
+        The user wants: "{user_message}"
         
-        Write a concise summary breakdown (max 3 sentences total). 
-        Acknowledge their mood and explain creatively why these movies match what they want.
-        Do not reveal major plot spoilers.
+        Our local vector database has successfully isolated these 5 movie matches:
+        {local_movie_context}
+        
+        Using your deep cinematic knowledge, hydrate the remaining missing card values (director, poster image URL placeholder, and the 4-sentence hybrid_summary).
         """
         
-        # Call the reasoning model via our global genai_client instance
-        reasoning_response = genai_client.models.generate_content(
+        final_package_response = genai_client.models.generate_content(
             model='gemini-2.5-flash',
-            contents=reasoning_prompt
+            contents=generation_prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=system_instruction,
+                response_mime_type="application/json",
+                response_schema=ChattedRecommendationResponse,
+            ),
         )
         
-        ai_reasoning_text = reasoning_response.text
+        final_validated_output = ChattedRecommendationResponse.model_validate_json(final_package_response.text)
+        return final_validated_output
 
-        # 🚀 Now we include the 'ai_reasoning' field in our return package!
-        return {
-            "search_query": user_prompt,
-            "status": "Success",
-            "results_count": len(results),
-            "ai_reasoning": ai_reasoning_text, 
-            "recommendations": results
-        }
-        
     except Exception as e:
-        return {
-            "status": "error",
-            "message": f"Hybrid pipeline layer failure: {str(e)}"
-        }
+        raise HTTPException(status_code=500, detail=f"Agent System Breakdown: {str(e)}")
