@@ -1,213 +1,224 @@
-import React, { useState } from 'react';
-import { Film, Search, Sparkles, AlertCircle, Clock, Star, MessageSquare } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Film, Send, Sparkles, AlertCircle, Clock, Star, FilmIcon, User, Settings } from 'lucide-react';
 
 function App() {
-  // 🧭 State Hooks for our User Inputs and API Pipeline
-  const [moodText, setMoodText] = useState('');
+  // 💬 Conversational State Thread Arrays
+  const [messages, setMessages] = useState([
+    { role: 'model', text: "Hey! I'm FlickFind AI. Tell me exactly what kind of movie experience or emotional vibe you're looking for tonight..." }
+  ]);
+  const [inputValue, setInputValue] = useState('');
   const [movies, setMovies] = useState([]);
-  const [aiFollowupChat, setAiFollowupChat] = useState(''); 
-  const [isContextSufficient, setIsContextSufficient] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
-  // 🔌 Async API Handler to strike our FastAPI Semantic endpoint
-  const handleSemanticSearch = async (e) => {
-    e.preventDefault();
-    if (!moodText.trim()) return;
+  // ⚙️ Persistent User Taste Profile Configs (Saved right in the browser)
+  const [favoriteGenres, setFavoriteGenres] = useState(() => JSON.parse(localStorage.getItem('ff_fav_genres')) || []);
+  const [dislikedGenres, setDislikedGenres] = useState(() => JSON.parse(localStorage.getItem('ff_dis_genres')) || []);
+  const [preferredEras, setPreferredEras] = useState(() => JSON.parse(localStorage.getItem('ff_eras')) || ['Modern']);
+  const [showSettings, setShowSettings] = useState(false);
 
-    setIsLoading(true);
+  const chatEndRef = useRef(null);
+
+  useEffect(() => {
+    localStorage.setItem('ff_fav_genres', JSON.stringify(favoriteGenres));
+    localStorage.setItem('ff_dis_genres', JSON.stringify(dislikedGenres));
+    localStorage.setItem('ff_eras', JSON.stringify(preferredEras));
+  }, [favoriteGenres, dislikedGenres, preferredEras]);
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  const handleSendMessage = async (e) => {
+    e.preventDefault();
+    if (!inputValue.trim() || isLoading) return;
+
+    const userText = inputValue.trim();
+    setInputValue('');
     setErrorMessage('');
-    setAiFollowupChat('');
-    setMovies([]);
+
+    // Append the user's message bubble to the visible active stream layout
+    const updatedHistory = [...messages, { role: 'user', text: userText }];
+    setMessages(updatedHistory);
+    setIsLoading(true);
+
+    // Format request payload including background preference profile matrices
+    const requestPayload = {
+      mood_text: userText,
+      chat_history: updatedHistory.slice(0, -1), // Everything except the very last entry
+      user_profile: {
+        favorite_genres: favoriteGenres,
+        disliked_genres: dislikedGenres,
+        preferred_eras: preferredEras,
+        taste_description: ""
+      }
+    };
 
     try {
       const response = await fetch('http://127.0.0.1:8000/api/v1/recommend/mood', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ mood_text: moodText }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestPayload),
       });
 
-      if (!response.ok) {
-        throw new Error(`HTTP network malfunction error: ${response.status}`);
-      }
-
+      if (!response.ok) throw new Error("Backend server connectivity fault.");
       const data = await response.json();
 
-      // Synchronized parsing matching the backend's ChattedRecommendationResponse schema contract
-      setIsContextSufficient(data.is_context_sufficient);
+      // Append AI response statement bubble to chat grid layout stream
+      setMessages(prev => [...prev, { role: 'model', text: data.ai_followup_chat }]);
       
-      if (data.is_context_sufficient === false) {
-        // Handle Gate Branch A: Prompt was too vague, populate chat follow-up prompt
-        setAiFollowupChat(data.ai_followup_chat || "Could you add more specific themes or details?");
-        setMovies([]);
+      if (data.is_context_sufficient && data.recommendations.length > 0) {
+        setMovies(data.recommendations);
       } else {
-        // Handle Gate Branch B: Context was golden, parse high-density movie nodes
-        setMovies(data.recommendations || []);
-        setAiFollowupChat(data.ai_followup_chat || ''); 
+        setMovies([]); // Keep results clear if still in conversational gathering loop
       }
-    } catch (error) {
-      console.error('API Handshake Failure:', error);
-      setErrorMessage('Could not connect to the backend server. Verify your FastAPI development container port 8000 is listening.');
+    } catch (err) {
+      setErrorMessage("Lost contact with backend engine container. Ensure port 8000 is listening.");
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-[#0b0c10] text-gray-100 flex flex-col px-4 sm:px-8 py-12">
+    <div className="min-h-screen bg-[#0b0c10] text-gray-100 flex flex-col md:flex-row h-screen overflow-hidden">
       
-      {/* 🎬 Header Section */}
-      <header className="max-w-4xl w-full mx-auto text-center mb-12">
-        <div className="inline-flex items-center gap-2 bg-[#1f2833] border border-gray-800 px-4 py-2 rounded-full text-sm text-[#66fcf1] mb-4 shadow-sm">
-          <Sparkles className="w-4 h-4" />
-          <span>Layer 3 Generative Reasoning Engine Active</span>
+      {/* 🛠️ LEFT SIDE PANEL: User Profile Taste Hub Preferences Settings */}
+      <aside className="w-full md:w-80 bg-[#1f2833] border-b md:border-b-0 md:border-r border-gray-800 p-6 flex flex-col h-auto md:h-full overflow-y-auto flex-shrink-0">
+        <div className="flex items-center gap-2 mb-6">
+          <Settings className="w-5 h-5 text-[#66fcf1]" />
+          <h2 className="font-bold text-lg text-white">Taste Configuration</h2>
         </div>
-        <h1 className="text-4xl sm:text-5xl font-black tracking-tight mb-3 bg-gradient-to-r from-white via-gray-200 to-gray-500 bg-clip-text text-transparent">
-          FlickFind<span className="text-[#66fcf1]">.ai</span>
-        </h1>
-        <p className="text-gray-400 text-lg max-w-xl mx-auto">
-          Skip the generic keyword filtering. Type how you feel, and let high-dimensional vector math surface your next cinematic watch.
-        </p>
-      </header>
 
-      {/* 🔍 Search Interactive Block */}
-      <main className="max-w-4xl w-full mx-auto flex-1">
-        <form onSubmit={handleSemanticSearch} className="mb-12">
-          <div className="relative bg-[#1f2833] border border-gray-800 rounded-2xl p-2 flex items-center shadow-xl focus-within:border-[#66fcf1]/30 transition-all duration-200">
-            <Search className="w-6 h-6 text-gray-500 ml-4 flex-shrink-0" />
-            <input
-              type="text"
-              value={moodText}
-              onChange={(e) => setMoodText(e.target.value)}
-              placeholder="e.g., A gritty, neon-lit cyberpunk detective thriller with philosophical themes"
-              className="w-full bg-transparent border-0 outline-none px-4 py-3 text-gray-200 placeholder-gray-600 font-medium text-base sm:text-lg focus:ring-0"
-              disabled={isLoading}
+        <div className="space-y-6 flex-1">
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">Favorite Genres (Comma Separated)</label>
+            <input 
+              type="text" 
+              placeholder="e.g., Sci-Fi, Mystery" 
+              value={favoriteGenres.join(', ')}
+              onChange={(e) => setFavoriteGenres(e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
+              className="w-full bg-[#0b0c10] border border-gray-800 rounded-xl px-4 py-2.5 text-sm outline-none text-gray-200 focus:border-[#66fcf1]/50 transition-all"
             />
-            <button
-              type="submit"
-              disabled={isLoading || !moodText.trim()}
-              className="bg-[#45f3ff] text-black font-bold px-6 py-3 rounded-xl hover:bg-opacity-90 active:scale-[0.98] disabled:opacity-40 disabled:scale-100 transition-all flex items-center gap-2 shadow-md cursor-pointer flex-shrink-0"
-            >
-              {isLoading ? (
-                <div className="w-5 h-5 border-2 border-black/30 border-t-black rounded-full animate-spin" />
-              ) : (
-                <span>Scan Catalog</span>
-              )}
-            </button>
           </div>
-        </form>
 
-        {/* ❌ System Level Error Modals */}
-        {errorMessage && (
-          <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-4 rounded-xl flex items-start gap-3 mb-8 max-w-2xl mx-auto text-sm">
-            <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
-            <p className="leading-relaxed">{errorMessage}</p>
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">Exclude Genres</label>
+            <input 
+              type="text" 
+              placeholder="e.g., Horror, Comedy" 
+              value={dislikedGenres.join(', ')}
+              onChange={(e) => setDislikedGenres(e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
+              className="w-full bg-[#0b0c10] border border-gray-800 rounded-xl px-4 py-2.5 text-sm outline-none text-gray-200 focus:border-[#66fcf1]/50 transition-all"
+            />
           </div>
-        )}
+        </div>
+        
+        <div className="mt-auto pt-6 border-t border-gray-800 text-xs text-gray-500 text-center font-medium">
+          FlickFind.ai Pipeline Layer 3 Live
+        </div>
+      </aside>
 
-        {/* 🚧 Branch A UI: AI Seeks More Context Context Feedback */}
-        {!isContextSufficient && aiFollowupChat && (
-          <div className="bg-gray-900 border border-amber-500/30 rounded-2xl p-6 mb-8 text-gray-200 shadow-xl border-l-4 border-l-amber-500 max-w-2xl mx-auto">
-            <div className="flex items-center gap-2 text-amber-400 font-bold text-sm mb-3 tracking-wide uppercase">
-              <MessageSquare className="w-4 h-4 fill-current" />
-              <span>Cinema Concierge Needs More Info</span>
-            </div>
-            <p className="text-base leading-relaxed text-gray-300 font-medium">
-              "{aiFollowupChat}"
-            </p>
+      {/* 💬 MIDDLE PANEL: Interactive Chat Stream Timeline View */}
+      <section className="flex-1 flex flex-col h-full bg-[#0b0c10] relative">
+        <header className="p-4 border-b border-gray-900 bg-[#0b0c10]/80 backdrop-blur flex items-center justify-between">
+          <div>
+            <h1 className="font-black text-xl tracking-tight text-white">FlickFind<span className="text-[#66fcf1]">.chat</span></h1>
+            <p className="text-xs text-gray-500 font-medium">Conversational Semantic Discovery Model</p>
           </div>
-        )}
+        </header>
 
-        {/* 🎬 Branch B UI: Semantic Matching Results Catalog Grid */}
-        <div>
-          {movies.length > 0 && (
-            <div>
-              {/* 🧠 Glowing AI Conversational Reasoning Panel */}
-              {aiFollowupChat && (
-                <div className="bg-gray-900 border border-indigo-500/30 rounded-2xl p-6 mb-8 text-gray-200 shadow-xl border-l-4 border-l-indigo-500">
-                  <div className="flex items-center gap-2 text-indigo-400 font-bold text-sm mb-3 tracking-wide uppercase">
-                    <Sparkles className="w-4 h-4 fill-current animate-pulse" />
-                    <span>FlickFind AI Analyst Breakdown</span>
-                  </div>
-                  <p className="text-base leading-relaxed text-gray-300 font-medium italic">
-                    "{aiFollowupChat}"
-                  </p>
-                </div>
-              )}
-
-              <h2 className="text-sm font-semibold tracking-wider uppercase text-gray-500 mb-6 flex items-center gap-2">
-                <Film className="w-4 h-4" />
-                <span>Top Mathematical Matches ({movies.length})</span>
-              </h2>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {movies.map((movie, index) => {
-                  // Resolve fallback posters utilizing standard placeholder links if missing
-                  const posterSrc = movie.poster_path 
-                    ? `https://image.tmdb.org/t/p/w500${movie.poster_path}` 
-                    : (movie.poster_url || "https://via.placeholder.com/500x750?text=Movie+Poster");
-
-                  return (
-                    <div 
-                      key={movie.id || index} 
-                      className="bg-[#1f2833] border border-gray-800 hover:border-gray-700/60 rounded-2xl overflow-hidden shadow-md transition-all duration-200 flex flex-col group"
-                    >
-                      {/* Integrated Movie Visual Card Segment */}
-                      <img 
-                        src={posterSrc} 
-                        alt={movie.title}
-                        className="w-full h-48 object-cover group-hover:scale-[1.01] transition-transform duration-200"
-                      />
-                      
-                      <div className="p-6 flex flex-col flex-1">
-                        <div className="flex justify-between items-start gap-4 mb-3">
-                          <h3 className="text-xl font-bold text-white group-hover:text-[#66fcf1] transition-colors duration-150">
-                            {movie.title}
-                          </h3>
-                          <div className="flex items-center gap-1 bg-yellow-500/10 text-yellow-500 font-bold px-2 py-1 rounded-md text-xs border border-yellow-500/20 flex-shrink-0">
-                            <Star className="w-3 h-3 fill-current" />
-                            <span>{movie.imdb_rating || 'N/A'}</span>
-                          </div>
-                        </div>
-
-                        <div className="flex flex-wrap gap-x-4 gap-y-2 text-xs font-semibold text-gray-400 mb-4">
-                          <span className="text-gray-500">{movie.release_year}</span>
-                          <span className="flex items-center gap-1">
-                            <Clock className="w-3 h-3" />
-                            {movie.runtime ? `${movie.runtime} mins` : 'Length N/A'}
-                          </span>
-                        </div>
-
-                        {/* Synchronized with hybrid_summary reasoning data column block */}
-                        <p className="text-gray-400 text-sm leading-relaxed mb-6 flex-1">
-                          {movie.hybrid_summary}
-                        </p>
-
-                        <div className="pt-4 border-t border-gray-800 text-xs mt-auto">
-                          <span className="text-gray-500 block mb-1 uppercase tracking-wider font-bold">Director</span>
-                          <span className="text-gray-300 font-medium">{movie.director || 'Unknown Director'}</span>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
+        {/* Dynamic Bubble Scroller Element Window */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-4 max-w-3xl w-full mx-auto">
+          {messages.map((msg, i) => (
+            <div key={i} className={`flex gap-3 max-w-[85%] ${msg.role === 'user' ? 'ml-auto flex-row-reverse' : 'mr-auto'}`}>
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 border ${msg.role === 'user' ? 'bg-[#1f2833] border-gray-700' : 'bg-indigo-950/50 border-indigo-500/30 text-[#66fcf1]'}`}>
+                {msg.role === 'user' ? <User className="w-4 h-4" /> : <Sparkles className="w-4 h-4" />}
+              </div>
+              <div className={`p-4 rounded-2xl text-sm leading-relaxed ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none shadow-md' : 'bg-[#1f2833] border border-gray-800 text-gray-200 rounded-tl-none shadow-sm'}`}>
+                {msg.text}
               </div>
             </div>
-          )}
-
-          {movies.length === 0 && !isLoading && isContextSufficient && (
-            <div className="text-center py-16 border border-dashed border-gray-800 rounded-2xl max-w-xl mx-auto bg-dark-surface/30">
-              <Film className="w-10 h-10 text-gray-700 mx-auto mb-3" />
-              <p className="text-gray-500 font-medium">Your recommendation feed is currently blank.</p>
-              <p className="text-gray-600 text-xs max-w-xs mx-auto mt-1">
-                Type an emotional preference prompt above to cross-reference our vector collection.
-              </p>
+          ))}
+          {isLoading && (
+            <div className="flex gap-3 mr-auto items-center text-gray-500 text-xs font-semibold tracking-wide bg-[#1f2833]/40 border border-gray-800/50 px-4 py-2.5 rounded-full animate-pulse">
+              <div className="w-3 h-3 border-2 border-gray-500 border-t-transparent rounded-full animate-spin" />
+              <span>Analyzing full context window logs...</span>
             </div>
           )}
+          {errorMessage && (
+            <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-4 rounded-xl flex items-center gap-2 text-xs">
+              <AlertCircle className="w-4 h-4" />
+              <span>{errorMessage}</span>
+            </div>
+          )}
+          <div ref={chatEndRef} />
         </div>
-      </main>
+
+        {/* Sticky Form Entry Action Deck Base Element */}
+        <div className="p-4 border-t border-gray-900 bg-[#0b0c10]">
+          <form onSubmit={handleSendMessage} className="max-w-3xl w-full mx-auto relative flex items-center bg-[#1f2833] border border-gray-800 rounded-xl p-1.5 focus-within:border-[#66fcf1]/30 transition-all">
+            <input 
+              type="text"
+              value={inputValue}
+              onChange={(e) => setInputValue(e.target.value)}
+              placeholder="Add more layers to your mood prompt preference details here..."
+              className="flex-1 bg-transparent border-0 outline-none px-4 py-2.5 text-sm text-gray-200 placeholder-gray-600"
+              disabled={isLoading}
+            />
+            <button type="submit" disabled={isLoading || !inputValue.trim()} className="bg-[#45f3ff] hover:bg-opacity-90 active:scale-95 text-black p-2.5 rounded-lg transition-all flex items-center justify-center flex-shrink-0 disabled:opacity-30 disabled:scale-100 cursor-pointer">
+              <Send className="w-4 h-4" />
+            </button>
+          </form>
+        </div>
+      </section>
+
+      {/* 🎬 RIGHT PANEL: Live Hydrated Movie Card Stream Recommendation Sheet */}
+      <section className="w-full md:w-[32rem] bg-[#0b0c10] border-t md:border-t-0 md:border-l border-gray-900 p-6 flex flex-col h-auto md:h-full overflow-y-auto flex-shrink-0">
+        <h2 className="text-sm font-bold tracking-wider uppercase text-gray-500 mb-4 flex items-center gap-2">
+          <Film className="w-4 h-4 text-[#66fcf1]" />
+          <span>Semantic Selections ({movies.length})</span>
+        </h2>
+        
+        {movies.length > 0 ? (
+          <div className="space-y-4">
+            {movies.map((movie, index) => {
+              const posterSrc = movie.poster_path 
+                ? `https://image.tmdb.org/t/p/w500${movie.poster_path}` 
+                : "https://via.placeholder.com/500x750?text=No+Artwork";
+
+              return (
+                <div key={movie.id || index} className="bg-[#1f2833] border border-gray-800 rounded-xl overflow-hidden shadow-md group flex flex-col">
+                  <img src={posterSrc} alt={movie.title} className="w-full h-40 object-cover" />
+                  <div className="p-4 flex flex-col flex-1">
+                    <div className="flex justify-between items-start gap-2 mb-2">
+                      <h3 className="font-bold text-white text-base group-hover:text-[#66fcf1] transition-colors">{movie.title}</h3>
+                      <div className="flex items-center gap-0.5 bg-yellow-500/10 text-yellow-500 font-bold px-1.5 py-0.5 rounded text-[10px] border border-yellow-500/20 flex-shrink-0">
+                        <Star className="w-2.5 h-2.5 fill-current" />
+                        <span>{movie.imdb_rating.toFixed(1)}</span>
+                      </div>
+                    </div>
+                    <div className="flex gap-3 text-[11px] text-gray-500 mb-2 font-semibold">
+                      <span>{movie.release_year}</span>
+                      <span>{movie.runtime} mins</span>
+                    </div>
+                    <p className="text-gray-400 text-xs leading-relaxed mb-4 flex-1">{movie.hybrid_summary}</p>
+                    <div className="pt-3 border-t border-gray-800 grid grid-cols-2 gap-2 text-[10px] text-gray-400">
+                      <div><span className="text-gray-500 block font-bold uppercase tracking-wide mb-0.5">Director</span>{movie.director}</div>
+                      <div><span className="text-gray-500 block font-bold uppercase tracking-wide mb-0.5">Music</span>{movie.music_composer}</div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="flex-1 flex flex-col items-center justify-center text-center py-12 border border-dashed border-gray-900 rounded-2xl bg-[#1f2833]/10 px-4">
+            <FilmIcon className="w-8 h-8 text-gray-800 mb-2" />
+            <p className="text-gray-500 text-xs font-medium max-w-xs">Chat with the analyst concierge on the left. Once context is adequate, cards populate here.</p>
+          </div>
+        )}
+      </section>
+
     </div>
   );
 }
