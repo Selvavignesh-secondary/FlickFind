@@ -17,7 +17,8 @@ class MoodRequest(BaseModel):
     mood_text: str = Field(description="The newest raw text input from the chat window")
     chat_history: List[ChatMessage] = Field(default=[], description="The full conversation history window up to this point")
     user_profile: Optional[UserProfile] = Field(default=None)
-
+    # 🛑 ANTI-REPETITION RUNTIME TRACKER: Allows frontend to pass down IDs that shouldn't be loaded again
+    displayed_movie_ids: Optional[List[int]] = Field(default=[], description="List of movie IDs already displayed in this chat session to prevent repetition")
 class MovieCard(BaseModel):
     id: int
     title: str
@@ -71,3 +72,8 @@ class DislikeAction(BaseModel):
     user_id: int
     movie_id: int
     rejection_reason: str        
+
+# schemas.py - Append to the bottom of the file
+class CompiledContextPayload(BaseModel):
+    dense_search_query: str = Field(description="The flattened, dense semantic search paragraph capturing all turns of historical and current conversation parameters.")
+    should_bypass_profile: bool = Field(description="Set to true if the user explicitly or implicitly states they want something new, an override, a shift away from their usual taste profile, or an exploration of alternative genres.")

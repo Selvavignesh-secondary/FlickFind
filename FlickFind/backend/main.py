@@ -4,7 +4,7 @@ import random
 from dotenv import load_dotenv
 # 🔋 Load environment configuration first
 load_dotenv()
-
+from sqlalchemy import func
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
@@ -22,7 +22,8 @@ from schemas import (
     DislikeAction,
     UserCreate, 
     UserLogin, 
-    UserResponse
+    UserResponse,
+    CompiledContextPayload
 )
 from auth_utils import hash_user_password, verify_user_password
 from ai_service import ai_engine
@@ -37,19 +38,22 @@ genai_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 # =====================================================================
 # 🎛️ THE FLICKFIND DISCOVERY CONFIGURATION BOARD
 # =====================================================================
+# =====================================================================
+# 🎛️ THE FLICKFIND DISCOVERY CONFIGURATION BOARD (UPDATED FOR METRIC BALANCE)
+# =====================================================================
 ALGORITHM_CONFIG = {
-    "MIN_RATING": 6.0,              # 🎯 Hard premium floor: Filters out anything below a solid 7.0
-    "MIN_VOTES": 300,               # 🚫 Obscurity guard: Wipes out zero-vote slop and unverified indie media
-    "MIN_RUNTIME": 60,              # ⏳ Runtime floor: Captures standard feature lengths and tight pacing
-    "CANDIDATE_POOL_LIMIT": 45,      # 📦 Size of candidate warehouse chunk passed into Gemini's single pass
+    "MIN_RATING": 6.0,              # 🎯 Hard premium floor: Filters out anything below a solid 6.0
+    "MIN_VOTES": 300,               # 🚫 Obscurity guard: Wipes out unverified indie media
+    "MIN_RUNTIME": 60,              # ⏳ Runtime floor: Captures standard feature lengths
+    "CANDIDATE_POOL_LIMIT": 35,     # 📦 Size of candidate warehouse chunk passed into Gemini
     
-    # 🧬 VECTOR VS. MAINSTREAM BALANCE COEFFICIENTS
-    # We increase the popularity multiplier so well-known films can easily climb above niche matches.
-    "POPULARITY_MULTIPLIER": 0.00035,  # 👈 Elevated to pull your engine firmly into mainstream territory
+    # 🧬 BALANCED VECTOR VS. METADATA COEFFICIENTS
+    # Popularity is now compressed logarithmically. This multiplier ensures well-known films
+    # get a clean, controlled nudge up without destroying semantic mood mapping.
+    "POPULARITY_MULTIPLIER": 0.05,  
     "RATING_MULTIPLIER": 0.02,
+    
     # 🧬 TASTE WEIGHT: How heavily to bias results toward their long-term profile history.
-    # 0.0 means ignore history completely (pure current mood). 
-    # 0.5 means balance their history equally with their current prompt.
     "LONG_TERM_PERSONA_WEIGHT": 0.3
 }
 
@@ -258,34 +262,56 @@ async def log_watched_movie(action: WatchedAction, db: Session = Depends(databas
 
 
 @app.post("/api/v1/user/dislike", status_code=200)
-async def log_disliked_movie(action: DislikeAction, db: Session = Depends(database.get_db)):
-    # Log the rejection reason cleanly for future text filtering
-    dislike_entry = models.UserDislikedFilter(
-        user_id=action.user_id,
-        movie_id=action.movie_id,
-        rejection_reason=action.rejection_reason
-    )
-    db.add(dislike_entry)
-    
-    # Optional: Slightly push the persona vector AWAY from this movie's vector space
-    user = db.query(models.User).filter(models.User.id == action.user_id).first()
-    movie = db.query(models.Movie).filter(models.Movie.id == action.movie_id).first()
-    
-    if user and movie and movie.mood_vector_data is not None:
-        movie_vector = list(movie.mood_vector_data)
-        user_vector = list(user.persona_vector_data)
-        
-        # Subtract a tiny fraction of the disliked movie's traits to avoid recommending similar ones
-        penalty_rate = 0.05 
-        updated_vector = [
-            u - (penalty_rate * m)
-            for u, m in zip(user_vector, movie_vector)
-        ]
-        user.persona_vector_data = updated_vector
+async def log_disliked_movie(
+    action: DislikeAction, 
+    db: Session = Depends(database.get_db)
+):
+    try:
+        # 1. Log the absolute filter trace so the specific ID is hidden from SQL views immediately
+        dislike_entry = models.UserDislikedFilter(
+            user_id=action.user_id,
+            movie_id=action.movie_id,
+            rejection_reason=action.rejection_reason
+        )
+        db.add(dislike_entry)
+        db.commit()
 
-    db.commit()
-    return {"status": "success", "message": "Dislike metrics tracked successfully."}
+        # 2. 🧬 SEMANTIC PROFILE ADJUSTMENT: Shift preference weights away from the dislike vector reason
+        # This applies if the user is authenticated and has provided an active reason string.
+        if action.user_id and action.rejection_reason:
+            current_user = db.query(models.User).filter(models.User.id == action.user_id).first()
+            
+            if current_user:
+                print(f"🧬 [FlickFind Taste Engine] Tuning persona vector for user {current_user.username}...")
+                print(f"📡 Vectorizing negative feedback reason: '{action.rejection_reason}'")
+                
+                # Generate a 768-dimensional local Nomic vector matching their rejection reason text
+                negative_vibe_vector = ai_engine.generate_vector(action.rejection_reason)
+                
+                # Initialize profile coordinate track to a clean blank zero array if empty
+                if current_user.persona_vector_data is None:
+                    current_user.persona_vector_data = [0.0] * 768
 
+                # 📉 Apply Vector Subtraction: Vector coordinates shift opposite to the disliked vibe
+                # A penalty rate of 0.15 gives the choice a noticeable, controlled nudge
+                PENALTY_RATE = 0.15
+                updated_coordinates = []
+                
+                for current_coord, negative_coord in zip(current_user.persona_vector_data, negative_vibe_vector):
+                    updated_coordinates.append(current_coord - (PENALTY_RATE * negative_coord))
+                
+                # Commit updated long-term profile array positions back to Postgres
+                current_user.persona_vector_data = updated_coordinates
+                db.commit()
+                print("✅ [FlickFind Taste Engine] Long-term user profile vector updated successfully.")
+
+        return {"status": "success", "message": "Dislike metrics tracked successfully and preference profile shifted."}
+
+    except Exception as e:
+        import traceback
+        print("🚨 DISLIKE CAPTURE FAILURE:")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Tracking pipeline fault: {str(e)}")
 
 from schemas import UserCreate, UserLogin, UserResponse
 from auth_utils import hash_user_password, verify_user_password
@@ -295,52 +321,83 @@ from auth_utils import hash_user_password, verify_user_password
 @app.post("/api/v1/recommend/mood", response_model=ChattedRecommendationResponse)
 async def analyze_mood_chat(
     request: MoodRequest, 
-    user_id: Optional[int] = None,  # 👈 Dynamic authenticated user tracker injected
+    user_id: Optional[int] = None,  # Dynamic authenticated user tracker injected
     db: Session = Depends(database.get_db)
 ):
     user_message = request.mood_text
     
     try:
-        # 🏎️ STEP 1: IMMEDIATELY RUN LOCAL VECTOR INFERENCE (Sub-50ms)
-        vector_signature = ai_engine.generate_vector(user_message)
-        
-        # 🧼 STEP 2: BUNDLE ROLLING CHAT CONTEXT WINDOW
+        # 🧼 STEP 1: CONCATENATE LIVE CHAT MEMORY STREAM
+        # 🧼 STEP 1: CONCATENATE LIVE CHAT MEMORY STREAM
         formatted_history = ""
         for msg in request.chat_history:
             formatted_history += f"{msg.role.upper()}: {msg.text}\n"
         formatted_history += f"USER CURRENT COMMAND: {user_message}"
 
-        # 🛡️ STEP 3: PRE-EVALUATE PROFILE OVERRIDE FOR THE SQL LAYER
-        lower_message = user_message.lower()
-        explicit_override = any(word in lower_message for word in ["override", "ignore my profile", "ignore profile", "something new", "different genre"])
+        # 🧠 STEP 2: STRUCTURED HIGH-SPEED CONTEXT COMPILER & OVERRIDE SWITCH (Gemini Pass)
+        # We leverage the compiler to generate both the text payload and evaluate profile bypasses intelligently.
+        context_compile_prompt = f"""
+        You are an expert cinematic context extractor and routing gatekeeper. Review the following conversational stream history between a user and an AI film assistant.
+        
+        TASK 1: Extract all explicit and implicit movie preferences, emotional layers, pacing requests, atmospheres, visual descriptions, 
+        and sonic elements mentioned across ALL turns of the dialogue into a single dense, continuous search query paragraph for 'dense_search_query'.
+        Focus strictly on thematic elements, tone, and cinematic styles requested. Do not include introductory text.
 
+        TASK 2: Evaluate 'should_bypass_profile'. Set this field to true if the user explicitly or implicitly requests a change of pace, 
+        wants to ignore their profile context, desires 'something completely new/different', or describes a mood/genre direction 
+        that intentionally breaks away from their long-term established sidebar parameters. Otherwise, default to false.
+
+        [CONVERSATION STREAM MEMORY]
+        {formatted_history}
+        """
+
+        compiled_context_turn = genai_client.models.generate_content(
+            model='gemini-2.5-flash-lite',
+            contents=context_compile_prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=CompiledContextPayload, # 👈 Drives structured engine compilation
+                thinking_config=types.ThinkingConfig(thinking_budget=0)
+            ),
+        )
+        
+        # Validate and unpack the compiler payload structure safely
+        compiler_result = CompiledContextPayload.model_validate_json(compiled_context_turn.text)
+        
+        dense_search_context = compiler_result.dense_search_query.strip()
+        explicit_override = compiler_result.should_bypass_profile
+        
+        print(f"\n📡 [FlickFind Context Compiler] Intelligent Profile Bypass Switch Active: {explicit_override}")
+        print(f"📡 [FlickFind Context Compiler] Flattened Search Input:\n{dense_search_context}\n")
+
+        # 🏎️ STEP 3: RUN LOCAL VECTOR INFERENCE ON THE ACCUMULATED CONTEXT
+        vector_signature = ai_engine.generate_vector(dense_search_context)
+        
+        # 🛡️ STEP 4: CLEAN UP PARAMETER WEIGHTING BASED ON LLM ROUTING SWITCH
         min_runtime = ALGORITHM_CONFIG["MIN_RUNTIME"]
         min_rating = ALGORITHM_CONFIG["MIN_RATING"]
         min_votes = ALGORITHM_CONFIG["MIN_VOTES"]
         
+        # The switch dynamically scales out the weight thresholds based on deep intent understanding
         pop_w = ALGORITHM_CONFIG["POPULARITY_MULTIPLIER"] if not explicit_override else 0.0
         rat_w = ALGORITHM_CONFIG["RATING_MULTIPLIER"] if not explicit_override else 0.0
-        
-        # 🧠 STEP 3b: RETRIEVE AND EVALUATE TASTE PERSONA MAPPING
-        # If the user is logged in and hasn't requested an override, we pull their historic 
-        # taste coordinate vector to create the hybrid score equation.
+        # 🧠 STEP 5: RETRIEVE AND EVALUATE HISTORIC TASTE PERSONA MAPPING
         persona_vector = None
         if user_id and not explicit_override:
             current_user = db.query(models.User).filter(models.User.id == user_id).first()
             if current_user and current_user.persona_vector_data is not None:
-                # Ensure it's not just the initial blank [0.0]*768 placeholder vector
                 if any(v != 0.0 for v in current_user.persona_vector_data):
                     persona_vector = current_user.persona_vector_data
 
-        # 🎯 STEP 4: PREPARE BASE RECO POLL QUERY STRUCTURE
-        # 🎯 STEP 4: EXTRACT CANDIDATE POOL (WITH FAULT-TOLERANT CEILING RECOVERY)
+        # 🎯 STEP 6: CONSTRUCT CORES POLL AND APPLY EXCLUSIONS
+        from sqlalchemy import func
         movie_query = db.query(models.Movie).filter(
             models.Movie.runtime >= min_runtime,
             models.Movie.imdb_rating >= min_rating,
             models.Movie.imdb_votes >= min_votes
         )
 
-        # Apply dislike blacklists if a tracked session is live
+        # Apply user account dislike blacklists
         if user_id:
             disliked_records = db.query(models.UserDislikedFilter.movie_id).filter(
                 models.UserDislikedFilter.user_id == user_id
@@ -349,6 +406,11 @@ async def analyze_mood_chat(
                 flat_disliked_ids = [record[0] for record in disliked_records]
                 movie_query = movie_query.filter(~models.Movie.id.in_(flat_disliked_ids))
 
+        # 🛑 ANTI-REPETITION FILTER: Exclude entries already loaded or seen in the frontend session frame
+        if request.displayed_movie_ids:
+            movie_query = movie_query.filter(~models.Movie.id.in_(request.displayed_movie_ids))
+
+        # Calculate distances
         prompt_distance = models.Movie.mood_vector_data.cosine_distance(vector_signature)
         
         if persona_vector is not None:
@@ -357,28 +419,31 @@ async def analyze_mood_chat(
         else:
             sorting_metric = prompt_distance
 
+        # Logarithmic scaling to keep raw popularity integers from breaking the vector coordinates
+        log_popularity = func.ln(models.Movie.popularity + 1)
+
         raw_candidates = (
             movie_query.order_by(
                 sorting_metric - 
-                (models.Movie.popularity * pop_w) - 
+                (log_popularity * pop_w) - 
                 (models.Movie.imdb_rating * rat_w)
             )
-            .limit(50)
+            .limit(ALGORITHM_CONFIG["CANDIDATE_POOL_LIMIT"])
             .all()
         )
         
-        # 🔄 AUTOMATIC ESCAPE HATCH: If strict filters yield nothing (e.g. cold start / mock data),
-        # drop vote and runtime thresholds completely to ensure data delivery.
+        # 🔄 AUTOMATIC ESCAPE HATCH: If strict filters yield nothing, drop thresholds
         if not raw_candidates:
             print("⚠️ [FlickFind Engine] Strict filters returned 0 rows. Executing baseline recovery pass...")
+            fallback_query = db.query(models.Movie)
+            if request.displayed_movie_ids:
+                fallback_query = fallback_query.filter(~models.Movie.id.in_(request.displayed_movie_ids))
             raw_candidates = (
-                db.query(models.Movie)
-                .order_by(prompt_distance)
+                fallback_query.order_by(prompt_distance)
                 .limit(30)
                 .all()
             )
         
-        # Double check containment protection
         if not raw_candidates:
             return ChattedRecommendationResponse(
                 is_context_sufficient=True,
@@ -386,15 +451,14 @@ async def analyze_mood_chat(
                 recommendations=[]
             )
 
-        # 🧠 STEP 4c: IN-MEMORY MOOD BOUNDED SHUFFLING
-        # Lock in the top 5 closest semantic matches, shuffle the rest to preserve diversity
+        # 🧠 STEP 7: IN-MEMORY MOOD BOUNDED SHUFFLING
         absolute_best_matches = raw_candidates[:5]
         deeper_mood_pool = raw_candidates[5:]
         
         sampled_variance = random.sample(deeper_mood_pool, min(len(deeper_mood_pool), 25))
         sampled_candidates = absolute_best_matches + sampled_variance
 
-        # 🛡️ STEP 5: BUNDLE PERSISTENT SIDEBAR PROFILE METRICS
+        # 🛡️ STEP 8: BUNDLE PERSISTENT SIDEBAR PROFILE METRICS
         profile_context = "No profile constraints tracking active."
         if request.user_profile:
             p = request.user_profile
@@ -405,7 +469,7 @@ async def analyze_mood_chat(
             for m in sampled_candidates
         ])
 
-        # 🧠 STEP 6: UNIFIED SPEED-FOCUSED CONCIERGE PROMPT
+        # 🧠 STEP 9: UNIFIED SPEED-FOCUSED CONCIERGE PROMPT
         system_instruction = """
         You are 'FlickFind AI', a film recommendation engine which will adapt according to the user's unique cinema taste without any bias towards any genre whatsoever.
         You are being handed the conversational history that you and the user have interacted with for you to pick the best film picks depending upon the user's emotional state and current mental state, while keeping his long term preference in mind, unless stated otherwise, a long-term user taste profile, and a candidate pool of mathematically matching movies from our local database warehouse context.
@@ -440,7 +504,6 @@ async def analyze_mood_chat(
         Analyze the inputs above and output the final structured JSON package matching the response model.
         """
 
-        # 🏎️ Fire the optimized, low-latency request turn
         unified_response = genai_client.models.generate_content(
             model='gemini-2.5-flash-lite',
             contents=generation_prompt,

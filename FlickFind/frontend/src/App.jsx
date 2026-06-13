@@ -54,39 +54,58 @@ function App() {
   }, [currentUser]); // 🚀 Fires automatically the exact instant a user logs in or out
 
   const handleSendMood = async (e) => {
-    e.preventDefault();
+    if (e) e.preventDefault();
     if (!moodText.trim() || loading) return;
 
-    const newUtterance = { role: "user", text: moodText };
-    const updatedHistory = [...chatHistory, newUtterance];
-    
-    setChatHistory(updatedHistory);
+    const userMsg = moodText;
     setMoodText("");
     setLoading(true);
 
+    // Append the local message immediately to keep UI updates instantaneous
+    const updatedHistory = [...chatHistory, { role: "user", text: userMsg }];
+    setChatHistory(updatedHistory);
+
     try {
       const url = currentUser 
-        ? `${BACKEND_URL}/api/v1/recommend/mood?user_id=${currentUser.user_id}`
+        ? `${BACKEND_URL}/api/v1/recommend/mood?user_id=${currentUser.id || currentUser.user_id}`
         : `${BACKEND_URL}/api/v1/recommend/mood`;
+
+      // 🛑 DYNAMIC TRACKING ENGINE: Gather IDs of all recommendations currently displayed on-screen
+      // This forces the backend SQL engine's exclude operator to bypass these files on subsequent turns.
+      const currentDisplayedIds = recommendations.map(movie => movie.id);
 
       const response = await fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
-          mood_text: moodText,
-          chat_history: chatHistory,
-          user_profile: userProfile
-        })
+          mood_text: userMsg,
+          chat_history: updatedHistory.slice(0, -1), // Send previous turns up to this point
+          user_profile: userProfile,
+          displayed_movie_ids: currentDisplayedIds // 👈 Active session exclusion tracking array passed here
+        }),
       });
 
+      if (!response.ok) {
+        throw new Error(`Server tracking fault: ${response.statusText}`);
+      }
+
       const data = await response.json();
+      
+      // Update our rolling UI history channel with the assistant response
       setChatHistory([...updatedHistory, { role: "model", text: data.ai_followup_chat }]);
       
+      // Update recommendations panel if the conversational block contains enough matching parameters
       if (data.is_context_sufficient && data.recommendations) {
         setRecommendations(data.recommendations);
       }
-    } catch (err) {
-      console.error("Discovery pipeline breakdown:", err);
+    } catch (error) {
+      console.error("🚨 Frontend delivery failure:", error);
+      setChatHistory([
+        ...updatedHistory,
+        { role: "model", text: "I ran into an issue connecting with the recommendation server. Please verify your backend ports are listening." }
+      ]);
     } finally {
       setLoading(false);
     }

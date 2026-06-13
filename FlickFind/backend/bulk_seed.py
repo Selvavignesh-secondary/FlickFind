@@ -24,12 +24,13 @@ def seed_database_complete_warehouse():
     )
     cursor = conn.cursor()
 
+    print("🔋 Registering pgvector C-extensions inside the PostgreSQL container instance...")
+    cursor.execute("CREATE EXTENSION IF NOT EXISTS vector;")
+    conn.commit()
+
     print("🧹 Purging old table schemas to prepare clean tracking memory pages...")
     cursor.execute("TRUNCATE TABLE movies RESTART IDENTITY;")
     conn.commit()
-
-    print("🛡️ LAUNCHING MAX-FEATURE DATA WAREHOUSE EXTRACTION ENGINE...")
-    start_time = time.time()
     
     parquet_file = pq.ParquetFile(parquet_filename)
     
