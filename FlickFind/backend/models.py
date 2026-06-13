@@ -1,6 +1,25 @@
-from sqlalchemy import Column, Integer, String, Float, Text
+import datetime
+from sqlalchemy import Column, Integer, String, Float, Text, DateTime
 from pgvector.sqlalchemy import Vector
 from database import Base
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String, unique=True, index=True, nullable=False)
+    email = Column(String, unique=True, index=True, nullable=False)
+    hashed_password = Column(String, nullable=False)
+    
+    # 🕵️‍♂️ USER CLASSIFICATION INDEX: 'BASIC_WATCHER', 'DEEP_DIVER', or 'CRITIC'
+    watcher_tier = Column(String, default="BASIC_WATCHER", nullable=False)
+    
+    # 📅 Account Analytics
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    
+    # 🧬 768-Dimensional Long-Term Personal Taste Identity
+    # This stores the running average coordinates of everything they engage with.
+    persona_vector_data = Column(Vector(768), nullable=True)
 
 class Movie(Base):
     __tablename__ = "movies"
@@ -52,3 +71,41 @@ class Movie(Base):
     
     # 🧬 768-Dimensional High-Density Vector Coordinates
     mood_vector_data = Column(Vector(768), nullable=True)
+
+
+
+# models.py - Append these classes to the bottom of the file
+
+class UserWatchlist(Base):
+    __tablename__ = "user_watchlists"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, index=True, nullable=False)
+    movie_id = Column(Integer, index=True, nullable=False)
+    added_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+
+
+class UserWatchedHistory(Base):
+    __tablename__ = "user_watched_history"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, index=True, nullable=False)
+    movie_id = Column(Integer, index=True, nullable=False)
+    
+    # ⭐️ FEEDBACK METRICS
+    rating = Column(Float, nullable=True)  # Simple star ratings for BASIC_WATCHERS
+    critic_review = Column(Text, nullable=True)  # Detailed technical breakdowns written by CRITICS/DEEP_DIVERS
+    
+    watched_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+
+
+class UserDislikedFilter(Base):
+    __tablename__ = "user_disliked_filters"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, index=True, nullable=False)
+    movie_id = Column(Integer, index=True, nullable=False)
+    
+    # 🚫 REASON TRACKING: e.g., "Too slow", "Hate the director", "Bad pacing"
+    rejection_reason = Column(String, nullable=False)
+    flagged_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)    
