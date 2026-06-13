@@ -168,6 +168,44 @@ async def toggle_watchlist_item(action: WatchlistAction, db: Session = Depends(d
     db.commit()
     return {"status": "added", "message": "Movie added to watchlist successfully."}
 
+# main.py - Insert right below your @app.post("/api/v1/user/watchlist") endpoint
+
+@app.get("/api/v1/user/watchlist/{user_id}", response_model=List[MovieCard])
+async def get_user_watchlist(user_id: int, db: Session = Depends(database.get_db)):
+    """
+    Retrieves the full, rich metadata of all films saved inside a user's database queue.
+    Performs a relational JOIN between watchlists and movies to avoid front-end data starvation.
+    """
+    try:
+        # Relational Join Query: Grab full Movie structures linked to the target User ID
+        watchlist_movies = (
+            db.query(models.Movie)
+            .join(models.UserWatchlist, models.UserWatchlist.movie_id == models.Movie.id)
+            .filter(models.UserWatchlist.user_id == user_id)
+            .order_by(models.UserWatchlist.added_at.desc())
+            .all()
+        )
+        
+        # Format database output records to conform perfectly to the MovieCard Pydantic validation schema
+        response_cards = []
+        for m in watchlist_movies:
+            response_cards.append(MovieCard(
+                id=m.id,
+                title=m.title,
+                release_year=m.release_year,
+                imdb_rating=m.imdb_rating,
+                runtime=m.runtime or 0,
+                director=m.director or "Unknown Director",
+                director_of_photography=m.director_of_photography or "Unknown",
+                music_composer=m.music_composer or "Unknown",
+                poster_path=m.poster_path,
+                hybrid_summary=m.overview or "" # Fallback safely to overview context fields
+            ))
+            
+        return response_cards
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch persistent user watchlist: {str(e)}")
 
 @app.post("/api/v1/user/watched", status_code=200)
 async def log_watched_movie(action: WatchedAction, db: Session = Depends(database.get_db)):

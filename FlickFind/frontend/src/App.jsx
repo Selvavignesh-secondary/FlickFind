@@ -1,5 +1,5 @@
 // src/App.jsx
-import React, { useState } from 'react';
+import React, { useState,useEffect } from 'react';
 import MovieCard from './components/MovieCard';
 import WatchlistModal from './components/WatchlistModal';
 import './App.css';
@@ -31,6 +31,27 @@ function App() {
   const [watchlistCache, setWatchlistCache] = useState([]); 
 
   const BACKEND_URL = "http://127.0.0.1:8000";
+
+  // =====================================================================
+  // 🔄 WATCHLIST DATABASE SYNC LIFECYCLE HOOK
+  // =====================================================================
+  useEffect(() => {
+    const syncWatchlistOnAuth = async () => {
+      if (!currentUser) return; // Stop if user logs out or session is empty
+
+      try {
+        const response = await fetch(`${BACKEND_URL}/api/v1/user/watchlist/${currentUser.user_id}`);
+        if (!response.ok) throw new Error("Watchlist sync network breakdown");
+        
+        const persistentData = await response.json();
+        setWatchlistCache(persistentData); // Sync the rich database items to the frontend cache state
+      } catch (err) {
+        console.error("❌ Failed to pull persistent watchlist from database:", err);
+      }
+    };
+
+    syncWatchlistOnAuth();
+  }, [currentUser]); // 🚀 Fires automatically the exact instant a user logs in or out
 
   const handleSendMood = async (e) => {
     e.preventDefault();
