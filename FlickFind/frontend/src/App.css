@@ -34,23 +34,107 @@
   /* =====================================================================
      🧭 NAV BAR HEADER LAYOUT
      ===================================================================== */
-  .main-header {
-    display: flex; justify-content: space-between; align-items: center;
-    padding: 0 24px; background-color: var(--bg-surface);
-    border-bottom: 1px solid var(--border-color);
-    height: 64px; min-height: 64px;
-    box-sizing: border-box;
-  }
-  
-  .logo-section h2 { margin: 0; font-size: 1.35rem; font-weight: 800; color: white; }
-  .logo-section .dot { color: var(--accent-blue); }
-  .tier-badge {
-    background-color: rgba(56, 189, 248, 0.1); color: var(--accent-blue);
-    font-size: 0.65rem; font-weight: 700; padding: 2px 6px; border-radius: 4px;
-    text-transform: uppercase; border: 1px solid rgba(56, 189, 248, 0.2);
-  }
-  .user-profile-plate { display: flex; align-items: center; gap: 16px; font-size: 0.9rem; }
-  
+     .main-header {
+      display: flex; 
+      justify-content: space-between; 
+      align-items: center;
+      padding: 0 24px; 
+      background-color: var(--bg-surface);
+      border-bottom: 1px solid var(--border-color);
+      height: 64px; 
+      min-height: 64px;
+      box-sizing: border-box;
+    }
+    
+    /* Align Tier Badge natively inline to the right of the text logo */
+    .logo-section {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .logo-section h2 { 
+      margin: 0; 
+      font-size: 1.35rem; 
+      font-weight: 800; 
+      color: white; 
+    }
+    .logo-section .dot { color: var(--accent-blue); }
+    .tier-badge {
+      background-color: rgba(56, 189, 248, 0.1); 
+      color: var(--accent-blue);
+      font-size: 0.65rem; 
+      font-weight: 700; 
+      padding: 4px 8px; 
+      border-radius: 4px;
+      text-transform: uppercase; 
+      border: 1px solid rgba(56, 189, 248, 0.25);
+      letter-spacing: 0.5px;
+      display: inline-block;
+    }
+    .user-profile-plate { 
+      display: flex; 
+      align-items: center; 
+      gap: 12px; 
+    }
+    .user-welcome-plate {
+      background-color: var(--bg-input);
+      border: 1px solid var(--border-color);
+      padding: 8px 14px;
+      border-radius: 8px;
+      font-size: 0.88rem;
+      font-weight: 600;
+      color: #e2e8f0;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .user-welcome-plate span {
+      color: white;
+      font-weight: 700;
+    }
+    
+    /* Solid Action Header Buttons */
+    .nav-btn-watchlist,
+    .nav-btn-logout {
+      padding: 8px 14px;
+      font-size: 0.85rem;
+      font-weight: 700;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      box-sizing: border-box;
+    }
+    
+    /* Watchlist Accent Trigger */
+    .nav-btn-watchlist {
+      background-color: rgba(99, 102, 241, 0.12);
+      border: 1px solid rgba(99, 102, 241, 0.3);
+      color: #a5b4fc;
+    }
+    .nav-btn-watchlist:hover {
+      background-color: #6366f1;
+      border-color: #818cf8;
+      color: white;
+      transform: translateY(-1px);
+    }
+    
+    /* Logout Danger Trigger */
+    .nav-btn-logout {
+      background-color: #1e293b;
+      border: 1px solid var(--border-color);
+      color: #cbd5e1;
+    }
+    .nav-btn-logout:hover {
+      background-color: rgba(244, 63, 94, 0.15);
+      border-color: var(--accent-red);
+      color: #fca5a5;
+      transform: translateY(-1px);
+    }
+    
+    .nav-btn-watchlist:active,
+    .nav-btn-logout:active {
+      transform: translateY(0);
+    }
   /* =====================================================================
      🏗️ THREE-PANEL MASTER RUNSPACE LAYOUT GRID
      ===================================================================== */

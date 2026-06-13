@@ -60,10 +60,18 @@ export default function MovieCard({ movie, onAction, isInWatchlist }) {
               <span className="value">{movie.director || "Unknown"}</span>
             </div>
             <div className="meta-data-node">
-              <span className="label">Music Composer</span>
-              <span className="value">{movie.music || "Unknown"}</span>
-            </div>
+            <span className="label">Starring</span>
+            <span className="value" title={
+              movie.movie_cast 
+                ? movie.movie_cast.split(',').slice(0, 2).map(name => name.trim()).join(', ')
+                : "Unknown"
+            }>
+              {movie.movie_cast 
+                ? movie.movie_cast.split(',').slice(0, 2).map(name => name.trim()).join(', ')
+                : "Unknown"}
+            </span>
           </div>
+        </div>
         </div>
       </div>
 
