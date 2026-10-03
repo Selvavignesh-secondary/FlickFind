@@ -1,14 +1,20 @@
+import sys
+import os
 import datetime
+from dotenv import load_dotenv
+
+load_dotenv()
+
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 from database import SessionLocal, engine, Base
 from models import Movie
 from ai_service import ai_engine
-from sqlalchemy import text
 
-# A targeted seed catalog matching your high-rating thriller preference parameters
+# High-rating thriller/sci-fi sample seed catalog for initial testing
 MOCK_MOVIES = [
     {
-        "id": 27205, # Real TMDB identifier baseline
+        "id": 27205,
         "title": "Inception",
         "release_year": 2010,
         "imdb_rating": 8.8,
@@ -57,35 +63,38 @@ MOCK_MOVIES = [
     }
 ]
 
+
 def seed_database():
     db: Session = SessionLocal()
-    
-    print("🔋 [Seeder] Registering pgvector C-extensions inside the PostgreSQL container...")
+
+    print("[Seeder] Ensuring pgvector extension exists...")
     db.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
     db.commit()
-    
-    print("🗄️  [Seeder] Synchronizing vector schemas with data tables...")
+
+    print("[Seeder] Synchronizing database tables...")
     Base.metadata.create_all(bind=engine)
-    
-    # Simple count check to prevent data row clutter if re-run
+
     existing_count = db.query(Movie).count()
     if existing_count > 0:
-        print(f"⚠️  [Seeder] Database already contains {existing_count} records. Clearing to apply fresh parameters...")
-        db.execute(text("TRUNCATE TABLE movies RESTART IDENTITY CASCADE;"))
-        db.commit()
+        if "--force" not in sys.argv:
+            print(f"[Seeder] Database already contains {existing_count} records.")
+            print("   Skipping seed to prevent overwriting existing data.")
+            print("   Run with '--force' if you explicitly want to truncate and re-seed.")
+            db.close()
+            return
+        else:
+            print(f"[Seeder] --force detected. Truncating {existing_count} records...")
+            db.execute(text("TRUNCATE TABLE movies RESTART IDENTITY CASCADE;"))
+            db.commit()
 
-    # Load our transformer model into local RAM execution contexts
     ai_engine.load_model()
-    
-    print("\n🚀 [Seeder] Beginning cinematic vectorization pipeline loop...")
+
+    print("\n[Seeder] Computing vectors and inserting movies...")
     for item in MOCK_MOVIES:
-        print(f"🎬 Processing synopsis metadata for: '{item['title']}'...")
-        
-        # Consolidate text block into a rich semantic context for our 768-dim embedder
+        print(f"  -> Vectorizing '{item['title']}'...")
         context_string = f"{item['title']} directed by {item['director']}. Genres: {item['genres']}. Overview: {item['overview']}"
-        
         computed_vector = ai_engine.generate_vector(context_string)
-        
+
         db_movie = Movie(
             id=item["id"],
             title=item["title"],
@@ -97,13 +106,14 @@ def seed_database():
             runtime=item["runtime"],
             genres=item["genres"],
             overview=item["overview"],
-            mood_vector_data=computed_vector
+            mood_vector_data=computed_vector,
         )
         db.add(db_movie)
-    
+
     db.commit()
     db.close()
-    print("\n✨ [Seeder] Data warehouse successfully populated with vector-mapped film structures!")
+    print("\n[Seeder] Database successfully seeded with sample films!")
+
 
 if __name__ == "__main__":
     seed_database()

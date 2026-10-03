@@ -3,13 +3,18 @@ venv/
 .venv/
 __pycache__/
 *.pyc
+*.pyo
 
-# Node/React dependencies
+# Node/React dependencies and builds
 node_modules/
 .pnpm-store/
+dist/
+frontend/dist/
+dist-ssr/
 
 # Environment secrets & local data
 .env
+*.env
 *.db
 *.local
 
@@ -24,6 +29,7 @@ models/
 .idea/
 .DS_Store
 
-# 🚨 Big Gun Data Assets (Crucial Size Blocks)
+# Big Data Assets & Parquet catalogs
 backend/movies_raw.parquet
+*.parquet
 backend/check_vector.py
